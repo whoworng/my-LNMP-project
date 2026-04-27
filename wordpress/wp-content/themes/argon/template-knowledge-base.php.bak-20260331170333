@@ -1,0 +1,125 @@
+<?php
+/*
+Template Name: 配置知识库
+Template Post Type: page
+*/
+
+get_header();
+
+the_post();
+$page_title = get_the_title();
+$page_intro = get_the_content();
+$knowledge_category = get_category_by_slug("config-vault");
+$knowledge_category_id = $knowledge_category ? (int) $knowledge_category->term_id : 0;
+$paged = max(1, (int) get_query_var("paged"));
+
+$query_args = array(
+    "post_type" => "post",
+    "post_status" => "publish",
+    "posts_per_page" => 12,
+    "paged" => $paged,
+);
+
+if ($knowledge_category_id > 0) {
+    $query_args["cat"] = $knowledge_category_id;
+}
+
+$knowledge_query = new WP_Query($query_args);
+$total_posts = (int) $knowledge_query->found_posts;
+?>
+
+<div class="page-information-card-container">
+    <div class="page-information-card card bg-white shadow-sm border-0 knowledge-base-hero-card">
+        <div class="card-body">
+            <span class="knowledge-base-hero-kicker">CONFIG VAULT</span>
+            <h1 class="knowledge-base-hero-title"><?php echo esc_html($page_title); ?></h1>
+            <p class="knowledge-base-hero-text">
+                这里集中整理站点的代码配置、部署片段与排障经验。之后你只需要在后台发布文章，并勾选分类“配置知识库”，这里就会自动生成卡片。
+            </p>
+            <div class="knowledge-base-hero-meta">
+                <span><i class="fa fa-files-o"></i> <?php echo esc_html($total_posts); ?> 篇条目</span>
+                <?php if ($knowledge_category_id > 0) { ?>
+                    <span><i class="fa fa-folder-open-o"></i> 分类已绑定</span>
+                <?php } ?>
+                <span><i class="fa fa-terminal"></i> 摘要优先显示配置片段</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php get_sidebar(); ?>
+
+<div id="primary" class="content-area knowledge-base-area">
+    <main id="main" class="site-main knowledge-base-main" role="main">
+        <?php if (trim(wp_strip_all_tags($page_intro)) !== "") { ?>
+            <section class="knowledge-base-intro card bg-white shadow-sm border-0">
+                <div class="card-body">
+                    <?php echo apply_filters("the_content", $page_intro); ?>
+                </div>
+            </section>
+        <?php } ?>
+
+        <section class="knowledge-base-grid">
+            <?php if ($knowledge_query->have_posts()) { ?>
+                <?php while ($knowledge_query->have_posts()) { ?>
+                    <?php
+                    $knowledge_query->the_post();
+                    $code_preview = trim(get_the_excerpt());
+
+                    if ($code_preview === "") {
+                        $code_preview = wp_strip_all_tags(strip_shortcodes(get_the_content()));
+                        $code_preview = wp_trim_words($code_preview, 36, " ...");
+                    }
+
+                    $code_preview = html_entity_decode($code_preview, ENT_QUOTES, get_bloginfo("charset"));
+                    ?>
+                    <article class="knowledge-base-card card bg-white shadow-sm border-0">
+                        <a class="knowledge-base-card-link" href="<?php the_permalink(); ?>">
+                            <div class="knowledge-base-card-top">
+                                <span class="knowledge-base-card-label">CONFIG NOTE</span>
+                                <time datetime="<?php echo esc_attr(get_the_date("c")); ?>"><?php echo esc_html(get_the_date("Y.m.d")); ?></time>
+                            </div>
+                            <h2 class="knowledge-base-card-title"><?php the_title(); ?></h2>
+                            <div class="knowledge-base-card-taxonomy">
+                                <?php
+                                $category_names = wp_get_post_categories(get_the_ID(), array("fields" => "names"));
+                                echo esc_html(implode(" · ", $category_names));
+                                ?>
+                            </div>
+                            <pre class="knowledge-base-card-code"><code><?php echo esc_html($code_preview); ?></code></pre>
+                            <div class="knowledge-base-card-footer">
+                                <span>查看全文</span>
+                                <i class="fa fa-arrow-right" aria-hidden="true"></i>
+                            </div>
+                        </a>
+                    </article>
+                <?php } ?>
+            <?php } else { ?>
+                <article class="knowledge-base-empty card bg-white shadow-sm border-0">
+                    <div class="card-body">
+                        <h2>知识库还没有条目</h2>
+                        <p>去 WordPress 后台新增文章，勾选分类“配置知识库”，并在摘要里写一段配置片段，这里就会自动显示成卡片。</p>
+                    </div>
+                </article>
+            <?php } ?>
+        </section>
+
+        <?php if ($knowledge_query->max_num_pages > 1) { ?>
+            <div class="knowledge-base-pagination">
+                <?php
+                echo paginate_links(array(
+                    "total" => $knowledge_query->max_num_pages,
+                    "current" => $paged,
+                    "type" => "list",
+                    "prev_text" => "«",
+                    "next_text" => "»",
+                ));
+                ?>
+            </div>
+        <?php } ?>
+
+        <?php wp_reset_postdata(); ?>
+    </main>
+</div>
+
+<?php get_footer(); ?>

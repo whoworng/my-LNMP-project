@@ -1,0 +1,127 @@
+# 提示:
+# 1) 先复制 `.env.example` 为 `.env` 并按注释修改值
+# 2) 如果你用 MariaDB, 将 DB_ENGINE= mariadb 且 DB_VERSION 调整为对应版本
+# 3) `src` 目录为代码根，建议入口为 `src/public`
+
+services:
+  nginx:
+    image: nginx:${NGINX_VERSION:-1.25}-alpine
+    container_name: ${PROJECT_NAME}_nginx
+    restart: unless-stopped
+    depends_on:
+      - php
+      - wordpress
+    ports:
+      - "${WEB_PORT:-80}:80" # 如需变更对外端口, 修改 WEB_PORT
+    volumes:
+      - ./wordpress:/var/www/html:delegated # WordPress 目录
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./logs/nginx:/var/log/nginx
+    networks:
+      - backend
+      - share_monitor_blog
+
+  php:
+    build:
+      context: ./php
+      args:
+        - PHP_VERSION=${PHP_VERSION:-8.2}
+        - TZ=${TZ:-UTC}
+    container_name: ${PROJECT_NAME}_php
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./src:/var/www/html:delegated # 与 nginx 保持一致
+      - ./php/php.ini:/usr/local/etc/php/php.ini:ro
+      - ./logs/php:/var/log/php
+    networks:
+      - backend
+
+  db:
+    image: ${DB_ENGINE:-mysql}:${DB_VERSION:-8.0}
+    container_name: ${PROJECT_NAME}_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: ${TZ:-UTC}
+    command: --default-authentication-plugin=${MYSQL_DEFAULT_AUTH_PLUGIN:-caching_sha2_password}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      # 下方两行分别适配 MySQL 与 MariaDB 的自定义配置路径；保留两行即可
+      - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro # MySQL 读取
+      - ./mysql/my.cnf:/etc/my.cnf.d/zzz-custom.cnf:ro # MariaDB 读取
+      - ./mysql/initdb:/docker-entrypoint-initdb.d:ro # 初始化脚本
+    networks:
+      - backend
+      - share_monitor_blog
+
+  wordpress:
+    image: wordpress:6.4-php8.2-fpm-alpine
+    container_name: ${PROJECT_NAME}_wordpress
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      WORDPRESS_DB_HOST: ${DB_HOST}:3306
+      WORDPRESS_DB_NAME: ${WP_DB_NAME:-wordpress}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: ${WP_TABLE_PREFIX:-wp_}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_MEMORY_LIMIT', '256M');
+        define('WP_MAX_MEMORY_LIMIT', '512M');
+    volumes:
+      - ./wordpress:/var/www/html
+    networks:
+      - backend
+    # 如需启用 Redis, 取消此服务注释, 并在 .env 设置 REDIS_PORT
+    # redis:
+    #   image: redis:7-alpine
+    #   container_name: ${PROJECT_NAME}_redis
+    #   restart: unless-stopped
+    #   ports:
+    #     - "${REDIS_PORT:-6379}:6379"
+    #   volumes:
+    #     - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    #   command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    #   networks:
+    #     - backend
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.15.0
+    container_name: ${PROJECT_NAME}_mysqld_exporter
+    restart: unless-stopped
+    command:
+      - "--mysqld.address=db:3306"
+      - "--mysqld.username=exporter"
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: "liu20041016"
+    networks:
+      - backend
+      - share_monitor_blog
+    depends_on:
+      - db
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.1.0
+    container_name: ${PROJECT_NAME}_nginx_exporter
+    restart: unless-stopped
+    command:
+      - "-nginx.scrape-uri=http://nginx:80/nginx_status"
+    networks:
+      - backend
+      - share_monitor_blog
+    depends_on:
+      - nginx
+
+networks:
+  backend:
+    name: ${PROJECT_NAME}_net
+  share_monitor_blog:
+    external: true
